@@ -8,13 +8,14 @@ public class ConstantPool {
      * index: 从1开始，0闲置不用
      */
     private ConstVal[] vals;
+    private int size = 1;
 
     public ConstantPool(int constantPoolCount) {
         vals = new ConstVal[constantPoolCount];
     }
 
     public void add(ConstVal val) {
-
+        vals[size++] = val;
     }
 
     /**
@@ -24,5 +25,4 @@ public class ConstantPool {
     public ConstVal get(int index) {
         return vals[index];
     }
-
 }

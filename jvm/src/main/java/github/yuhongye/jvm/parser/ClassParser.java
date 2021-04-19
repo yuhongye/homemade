@@ -2,11 +2,13 @@ package github.yuhongye.jvm.parser;
 
 
 import com.google.common.base.Preconditions;
-import com.sun.org.apache.bcel.internal.Const;
 import github.yuhongye.jvm.meta.JDKVersion;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.DataInput;
+import java.io.DataInputStream;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.EnumMap;
 import java.util.Map;
@@ -76,34 +78,47 @@ public class ClassParser {
         constantTagParser.put(CONSTANT_METHODREF_INFO,          in -> new ConstVal(CONSTANT_METHODREF_INFO, readRefInfo(in)));
         constantTagParser.put(CONSTANT_INTERFACEMETHODREF_INFO, in -> new ConstVal(CONSTANT_INTERFACEMETHODREF_INFO, readRefInfo(in)));
 
-        constantTagParser.put(CONSTANT_METHODTYPE_INFO,         in -> new ConstVal(CONSTANT_METHODTYPE_INFO, readDynamic(in)));
-        constantTagParser.put(CONSTANT_METHODHANDLE_INFO,       in -> new ConstVal(CONSTANT_METHODHANDLE_INFO, readDynamic(in)));
-        constantTagParser.put(CONSTANT_INVOKEDYNAMIC_INFO,      in -> new ConstVal(CONSTANT_INVOKEDYNAMIC_INFO, readDynamic(in)));
+        constantTagParser.put(CONSTANT_METHODTYPE_INFO,         ClassParser::readMethodType);
+        constantTagParser.put(CONSTANT_METHODHANDLE_INFO,       ClassParser::readMethodHandle);
+        constantTagParser.put(CONSTANT_INVOKEDYNAMIC_INFO,      ClassParser::readDynamic);
     }
 
     private ConstantPool constantPool;
 
-    public void checkCheckMagic(int magic) {
-        Preconditions.checkArgument(magic != MAGIC, "This is not valid class file format.");
+    public void checkCheckMagic(DataInput in) throws IOException {
+        int magic = in.readInt();
+        log.info("Magic: {}", Integer.toHexString(magic));
+        Preconditions.checkArgument(magic == MAGIC, "This is not valid class file format.");
     }
 
-    public void checkVersion(int minorVersion, int majorVersion) {
-        log.info("JDK VERSION: {}", JDKVersion.getByVersion(majorVersion));
+    public void checkVersion(DataInput in) throws IOException {
+        int minor = in.readShort();
+        int major = in.readShort();
+        log.info("Major version: {}, minor version: {}", major, minor);
+        log.info("JDK VERSION: {}", JDKVersion.getByVersion(major));
+    }
+
+    private int readConstantPoolCountAndInit(DataInput in) throws IOException {
+        int count = in.readUnsignedShort();
+        constantPool = new ConstantPool(count);
+        log.info("Constant pool count: {}", count);
+        return count;
     }
 
     public void processConstantPool(DataInput in) throws Exception {
-        int tag = in.readUnsignedByte();
-        ConstantTag ctag = ConstantTag.getByTag(tag);
-        log.info("Read constant pool tag: {} --> {}", tag, ctag);
-        ConstVal value = constantTagParser.get(ctag).read(in);
-        log.info("Constant value: {}", value);
-        constantPool.add(value);
+        int count = readConstantPoolCountAndInit(in);
+        for (int i = 1; i < count; i++) {
+            int tag = in.readUnsignedByte();
+            ConstantTag ctag = ConstantTag.getByTag(tag);
+            ConstVal value = constantTagParser.get(ctag).read(in);
+            log.info("Read constant pool {}[{}], value: {}", ctag, tag, value);
+            constantPool.add(value);
+        }
     }
 
     static ConstVal readUtf8(DataInput in) throws IOException {
         return new ConstVal(CONSTANT_UTF8_INFO, in.readUTF());
     }
-
 
     static ConstVal readClassInfo(DataInput in) throws IOException {
         return new ConstVal(CONSTANT_CLASS_INFO, in.readUnsignedShort());
@@ -121,9 +136,29 @@ public class ClassParser {
         return new ConstVal.RefInfo(classIndex, nameAndTypeIndex);
     }
 
-    static ConstVal.DynamicInfo readDynamic(DataInput in) throws IOException {
+    static ConstVal readMethodType(DataInput in) throws IOException {
+        short descIndex = in.readShort();
+        return new ConstVal(CONSTANT_METHODTYPE_INFO, new ConstVal.MethodType(descIndex));
+    }
+
+    static ConstVal readMethodHandle(DataInput in) throws IOException {
+        byte referenceKind = in.readByte();
+        short referenceIndex = in.readShort();
+        return new ConstVal(CONSTANT_METHODHANDLE_INFO, new ConstVal.MethodHandleInfo(referenceKind, referenceIndex));
+    }
+
+    static ConstVal readDynamic(DataInput in) throws IOException {
         short bootstrapMethodAttrIndex = in.readShort();
         short nameAndTypeIndex = in.readShort();
-        return new ConstVal.DynamicInfo(bootstrapMethodAttrIndex, nameAndTypeIndex);
+        return new ConstVal(CONSTANT_INVOKEDYNAMIC_INFO,
+                new ConstVal.DynamicInfo(bootstrapMethodAttrIndex, nameAndTypeIndex));
+    }
+
+    public static void main(String[] args) throws Exception {
+        DataInput in = new DataInputStream(new FileInputStream("/Users/caoxiaoyong/Desktop/temp/HelloWorld.class"));
+        ClassParser parser = new ClassParser();
+        parser.checkCheckMagic(in);
+        parser.checkVersion(in);
+        parser.processConstantPool(in);
     }
 }

@@ -90,6 +90,35 @@ public class ConstVal {
      *  - CONSTANT_InvokeDynamic_info
      */
     @AllArgsConstructor
+    static class MethodHandleInfo {
+        /**
+         * 方法句柄的类型，值范围必须是1-9
+         */
+        byte referenceKind;
+
+        /**
+         * 1. 如果{@link #referenceKind} 的值是1, 2, 3, 4，那么reference_index对应的索引处成员必须是Constant_Fieldref_info
+         * 2. 如果{@link #referenceKind} 的值是5, 8, 那么reference_index对应的索引处成员必须是Constant_Methodref_info
+         * 3. 如果{@link #referenceKind} 的值是6, 7, 那么reference_index对应的索引处成员必须是Constant_Methodref_info 或者
+         *    是Constant_InterfaceMethodref_info(文件版本大于等于52.0, 如果小于52.0 只能是Constant_Methodref_info)
+         * 4. 如果{@link #referenceKind} 的值是9, 那么reference_index对应的索引处成员必须是Constant_InterfaceMethodref_info
+         *
+         * 1, 2, 3, 4 是针对字段的；
+         * 5, 6, 7, 8, 9 是针对方法调用的。其中8(Ref_newInvokeSpecial)，那么Constant_Methodref_info结构所表示的方法其名称必须是<init>;
+         * 5, 6, 7, 9 那么由Constant_Methodref_info 或者 Constant_InterfaceMethodref_info 结构锁表示的方法名称不能为<init>或者<cinit>
+         */
+        short referenceIndex;
+
+        public int getReferenceKind() {
+            return referenceKind & 0xFF;
+        }
+
+        public int getReferenceIndex() {
+            return referenceIndex & 0xFFFF;
+        }
+    }
+
+    @AllArgsConstructor
     static class DynamicInfo {
         /**
          * 执行导引方法表 bootstrap_methods[] 数组的索引
@@ -107,6 +136,21 @@ public class ConstVal {
 
         public int getNameAndTypeIndex() {
             return nameAndTypeIndex & 0xFFFF;
+        }
+    }
+
+    /**
+     * 方法的描述符
+     */
+    @AllArgsConstructor
+    static class MethodType {
+        /**
+         * 必须对应常量池的Constant_Utf8_info
+         */
+        short descriptorIndex;
+
+        int getDescriptorIndex() {
+            return descriptorIndex & 0xFFFF;
         }
     }
 }

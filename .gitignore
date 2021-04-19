@@ -24,6 +24,7 @@ hs_err_pid*
 
 #idea
 .idea
+jvm/.idea/*
 target/
 
 #log data
