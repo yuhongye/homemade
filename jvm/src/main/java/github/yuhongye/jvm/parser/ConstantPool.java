@@ -15,7 +15,8 @@ public class ConstantPool {
     }
 
     public void add(ConstVal val) {
-        vals[size++] = val;
+        vals[size] = val;
+        size += val.getTag().getSlotSize();
     }
 
     /**
@@ -25,4 +26,29 @@ public class ConstantPool {
     public ConstVal get(int index) {
         return vals[index];
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Constant pool: \n");
+        int i = 1;
+        while (i < size) {
+            ConstVal value = get(i);
+            const2String(value, i, sb);
+            i += value.getTag().getSlotSize();
+        }
+        return sb.toString();
+    }
+
+    private void const2String(ConstVal value, int index, StringBuilder sb) {
+        sb.append("#").append(index)
+                .append(" = ")
+                .append(value.getTag())
+                .append("\t").append(value)
+                .append("\n");
+    }
+
+
+
+
 }

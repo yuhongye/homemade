@@ -87,7 +87,7 @@ public class ClassParser {
 
     public void checkCheckMagic(DataInput in) throws IOException {
         int magic = in.readInt();
-        log.info("Magic: {}", Integer.toHexString(magic));
+        log.info("Magic: 0x{}", Integer.toHexString(magic).toUpperCase());
         Preconditions.checkArgument(magic == MAGIC, "This is not valid class file format.");
     }
 
@@ -107,12 +107,14 @@ public class ClassParser {
 
     public void processConstantPool(DataInput in) throws Exception {
         int count = readConstantPoolCountAndInit(in);
-        for (int i = 1; i < count; i++) {
+        int i = 1;
+        while (i < count) {
             int tag = in.readUnsignedByte();
             ConstantTag ctag = ConstantTag.getByTag(tag);
             ConstVal value = constantTagParser.get(ctag).read(in);
-            log.info("Read constant pool {}[{}], value: {}", ctag, tag, value);
+            log.info("#{} Read constant pool {}[{}], value: {}", i, ctag, tag, value.toString());
             constantPool.add(value);
+            i += ctag.getSlotSize();
         }
     }
 
@@ -127,7 +129,7 @@ public class ClassParser {
     static ConstVal readNameAndTypeInfo(DataInput in) throws IOException {
         short nameIndex = in.readShort();
         short descIndex = in.readShort();
-        return new ConstVal(CONSTANT_CLASS_INFO, new ConstVal.NameAndTypeInfo(nameIndex, descIndex));
+        return new ConstVal(CONSTANT_NAMEANDTYPE_INFO, new ConstVal.NameAndTypeInfo(nameIndex, descIndex));
     }
 
     static ConstVal.RefInfo readRefInfo(DataInput in) throws IOException {
@@ -160,5 +162,6 @@ public class ClassParser {
         parser.checkCheckMagic(in);
         parser.checkVersion(in);
         parser.processConstantPool(in);
+        log.info("{}", parser.constantPool.toString());
     }
 }

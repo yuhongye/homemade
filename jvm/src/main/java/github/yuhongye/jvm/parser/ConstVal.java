@@ -43,7 +43,15 @@ public class ConstVal {
 
     @Override
     public String toString() {
-        return val.toString();
+        switch (tag) {
+            case CONSTANT_LONG_INFO: return val.toString() + "L";
+            case CONSTANT_FLOAT_INFO: return val.toString() + "F";
+            case CONSTANT_DOUBLE_INFO: return val.toString() + "D";
+            case CONSTANT_STRING_INFO: return "#" + val.toString();
+            case CONSTANT_CLASS_INFO: return "#" + val.toString();
+            default:
+                return val.toString();
+        }
     }
 
     @AllArgsConstructor
@@ -60,6 +68,11 @@ public class ConstVal {
 
         int getDescriptorIndex() {
             return descriptorIndex & 0xFFFF;
+        }
+
+        @Override
+        public String toString() {
+            return "#" + getNameIndex() + ".#" + getDescriptorIndex();
         }
     }
 
@@ -80,6 +93,11 @@ public class ConstVal {
 
         int getNameAndTypeIndex() {
             return nameAndTypeIndex & 0xFFFF;
+        }
+
+        @Override
+        public String toString() {
+            return "#" + getClassIndex() + ".#" + getNameAndTypeIndex();
         }
     }
 
@@ -116,6 +134,11 @@ public class ConstVal {
         public int getReferenceIndex() {
             return referenceIndex & 0xFFFF;
         }
+
+        @Override
+        public String toString() {
+            return "#" + getReferenceKind() + ".#" + getReferenceIndex();
+        }
     }
 
     @AllArgsConstructor
@@ -137,6 +160,11 @@ public class ConstVal {
         public int getNameAndTypeIndex() {
             return nameAndTypeIndex & 0xFFFF;
         }
+
+        @Override
+        public String toString() {
+            return "#" + getBootstrapMethodAttrIndex() + ".#" + getNameAndTypeIndex();
+        }
     }
 
     /**
@@ -151,6 +179,11 @@ public class ConstVal {
 
         int getDescriptorIndex() {
             return descriptorIndex & 0xFFFF;
+        }
+
+        @Override
+        public String toString() {
+            return "#" + getDescriptorIndex();
         }
     }
 }
