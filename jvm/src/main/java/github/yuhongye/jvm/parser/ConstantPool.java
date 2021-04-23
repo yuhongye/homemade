@@ -48,6 +48,18 @@ public class ConstantPool {
                 .append("\n");
     }
 
+    public String toString(int index) {
+        return toString(get(index));
+    }
+
+    public String toString(ConstVal value) {
+        if (value.getVal() instanceof Integer && value.getTag() != ConstantTag.CONSTANT_INTEGER_INFO) {
+            return get(((Integer) value.getVal()).intValue()).toString();
+        } else {
+            return value.toString();
+        }
+    }
+
 
 
 

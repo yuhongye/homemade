@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.EnumMap;
 import java.util.Map;
@@ -156,12 +155,145 @@ public class ClassParser {
                 new ConstVal.DynamicInfo(bootstrapMethodAttrIndex, nameAndTypeIndex));
     }
 
+    public void readAccessFlag(DataInput in) throws IOException {
+        short acc = in.readShort();
+        String accInfo = ClassAcc.toString(acc);
+        log.info("Access flag: {}", accInfo);
+    }
+
+    public void classSuperClass(DataInput in) throws IOException {
+        int clsIndex = in.readUnsignedShort();
+        ConstVal cls = constantPool.get(clsIndex);
+        int superIndex = in.readUnsignedShort();
+        ConstVal superCls = constantPool.get(superIndex);
+        log.info("This class: {}, super class: {}", constantPool.toString(cls), constantPool.toString(superCls));
+    }
+
+    public void readInterfaces(DataInput in) throws IOException {
+        int count = in.readUnsignedShort();
+        log.info("Interface count: {}", count);
+        for (int i = 1; i <= count; i++) {
+            int interfaceIndex = in.readUnsignedShort();
+            ConstVal val = constantPool.get(interfaceIndex);
+            log.info("The {}th interface: {}", i, constantPool.toString(val));
+        }
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        int count = in.readUnsignedShort();
+        log.info("Field count: {}", count);
+        for (int i = 0; i < count; i++) {
+            readField(in);
+        }
+    }
+
+    /**
+     * 字段结构：
+     * field_info {
+     *     u2 access_flags;
+     *     u2 name_index;
+     *     u2 descriptor_index;
+     *     u2 attributes_count;
+     *     attribute_info attributes[attributes_count]
+     * }
+     *
+     * @param in
+     * @throws IOException
+     */
+    private void readField(DataInput in) throws IOException {
+        int acc = in.readUnsignedShort();
+        log.info("Field access flag: {}, desc: {}", acc, FieldAcc.toString(acc));
+        int nameIndex = in.readUnsignedShort();
+        String field = constantPool.toString(nameIndex);
+        log.info("Field name index: {}, field: {}", nameIndex, field);
+        int descIndex = in.readUnsignedShort();
+        log.info("Field descriptor index: {}, desc: {}", descIndex, constantPool.toString(descIndex));
+        int attributesCount = in.readUnsignedShort();
+        log.info("Field attributes count: {}", attributesCount);
+        for (int i = 0; i < attributesCount; i++) {
+            readAttribute(in);
+        }
+    }
+
+    public void readMethods(DataInput in) throws IOException {
+        int count = in.readUnsignedShort();
+        log.info("Method count: {}", count);
+        for (int i = 0; i < count; i++) {
+            readMethod(in);
+        }
+    }
+
+    /**
+     * 所有方法(包括实例初始化方法)都有method_info结构定义:
+     * method_info {
+     *     u2 access_flags;
+     *     u2 name_index;
+     *     u2 descriptor_index;
+     *     u2 attributes_count;
+     *     attribute_info attributes[attributes_count];
+     * }
+     * @param in
+     */
+    private void readMethod(DataInput in) throws IOException {
+        int acc = in.readUnsignedShort();
+        log.info("Method access flag: {}, desc: {}", acc, MethodAcc.toString(acc));
+        int nameIndex = in.readUnsignedShort();
+        String field = constantPool.toString(nameIndex);
+        log.info("Method name index: {}, field: {}", nameIndex, field);
+        int descIndex = in.readUnsignedShort();
+        log.info("Method descriptor index: {}, desc: {}", descIndex, constantPool.toString(descIndex));
+        int attributesCount = in.readUnsignedShort();
+        log.info("Method attributes count: {}", attributesCount);
+        for (int i = 0; i < attributesCount; i++) {
+            readAttribute(in);
+        }
+    }
+
+    public void readClassAttributes(DataInput in) throws IOException {
+        int count = in.readUnsignedShort();
+        log.info("Class attributes count: {}", count);
+        for (int i = 0; i < count; i++) {
+            readAttribute(in);
+        }
+    }
+
+    /**
+     * 属性在ClassFile, field_info, method_info, Code_attribute中都有使用.
+     * 所有结构的通用格式如下:
+     * attribute_info {
+     *     u2 attribute_name_index; // 必须得是Constant_Utf8_info
+     *     u4 attribute_length;
+     *     u1 info[attribute_length];
+     * }
+     *
+     * Java 8的规范中定义了23中属性
+     *
+     * @param in
+     */
+    private void readAttribute(DataInput in) throws IOException {
+        int nameIndex = in.readUnsignedShort();
+        ConstVal name = constantPool.get(nameIndex);
+        Preconditions.checkState(name.getTag() == CONSTANT_UTF8_INFO,
+                "属性的attribute_name_index对应的常量必须是Constant_Utf8_info");
+        int length = in.readInt();
+        byte[] attribute = new byte[length];
+        in.readFully(attribute);
+        log.info("\tattribute name: {}, length: {}", name.toString(), length);
+    }
+
     public static void main(String[] args) throws Exception {
-        DataInput in = new DataInputStream(new FileInputStream("/Users/caoxiaoyong/Desktop/temp/HelloWorld.class"));
+        DataInputStream in = new DataInputStream(new FileInputStream("/Users/caoxiaoyong/Desktop/temp/HelloWorld.class"));
         ClassParser parser = new ClassParser();
         parser.checkCheckMagic(in);
         parser.checkVersion(in);
         parser.processConstantPool(in);
         log.info("{}", parser.constantPool.toString());
+        parser.readAccessFlag(in);
+        parser.classSuperClass(in);
+        parser.readInterfaces(in);
+        parser.readFields(in);
+        parser.readMethods(in);
+        parser.readClassAttributes(in);
+        Preconditions.checkState(in.available() == 0);
     }
 }
