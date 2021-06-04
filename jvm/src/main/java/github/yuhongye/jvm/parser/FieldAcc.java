@@ -22,6 +22,10 @@ public enum FieldAcc {
     private int mask;
     private String desc;
 
+    public boolean is(int accessFlag) {
+        return (mask & accessFlag) != 0;
+    }
+
     public static String toString(int accessFlag) {
         return Arrays.stream(values())
                 .filter(acc -> (acc.mask & accessFlag) != 0)

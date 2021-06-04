@@ -13,31 +13,31 @@ public class ConstVal {
     /**
      * 为了简单起见，通过tag来标明是什么类型, 不再创建子类了
      */
-    private ConstantTag tag;
+    private ConstTag tag;
     private Object val;
 
     public int asInt() {
-        Preconditions.checkState(tag == ConstantTag.CONSTANT_INTEGER_INFO);
+        Preconditions.checkState(tag == ConstTag.CONSTANT_INTEGER_INFO);
         return ((Integer) val).intValue();
     }
 
     public long asLong() {
-        Preconditions.checkState(tag == ConstantTag.CONSTANT_INTEGER_INFO);
+        Preconditions.checkState(tag == ConstTag.CONSTANT_INTEGER_INFO);
         return ((Long) val).longValue();
     }
 
     public double asFloat() {
-        Preconditions.checkState(tag == ConstantTag.CONSTANT_FLOAT_INFO);
+        Preconditions.checkState(tag == ConstTag.CONSTANT_FLOAT_INFO);
         return ((Float) val).floatValue();
     }
 
     public double asDouble() {
-        Preconditions.checkState(tag == ConstantTag.CONSTANT_DOUBLE_INFO);
+        Preconditions.checkState(tag == ConstTag.CONSTANT_DOUBLE_INFO);
         return ((Double) val).doubleValue();
     }
 
     public String asString() {
-        Preconditions.checkState(tag == ConstantTag.CONSTANT_STRING_INFO || tag == ConstantTag.CONSTANT_UTF8_INFO);
+        Preconditions.checkState(tag == ConstTag.CONSTANT_STRING_INFO || tag == ConstTag.CONSTANT_UTF8_INFO);
         return val.toString();
     }
 

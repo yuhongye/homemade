@@ -8,7 +8,7 @@ import java.util.Map;
 
 @AllArgsConstructor
 @Getter
-public enum ConstantTag {
+public enum ConstTag {
     CONSTANT_UTF8_INFO(               1, 1, "Constant_Utf8_info", "Utf8"),
     CONSTANT_INTEGER_INFO(            3, 1, "Constant_Integer_info", "Integer"),
     CONSTANT_FLOAT_INFO(              4, 1, "Constant_Float_info", "Float"),
@@ -30,9 +30,9 @@ public enum ConstantTag {
     private String type;
     private String shortName;
 
-    private static final Map<Integer, ConstantTag> tag2Enum = new HashMap<>();
+    private static final Map<Integer, ConstTag> tag2Enum = new HashMap<>();
     static {
-        for (ConstantTag tag : values()) {
+        for (ConstTag tag : values()) {
             tag2Enum.put(tag.tag, tag);
         }
     }
@@ -42,7 +42,7 @@ public enum ConstantTag {
         return shortName;
     }
 
-    public static ConstantTag getByTag(int tag) {
+    public static ConstTag getByTag(int tag) {
         return tag2Enum.get(tag);
     }
 }

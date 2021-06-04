@@ -3,14 +3,14 @@ package github.yuhongye.jvm.parser;
 /**
  * 常量池, 提供按索引访问的能力: 从下表1开始
  */
-public class ConstantPool {
+public class ConstPool {
     /**
      * index: 从1开始，0闲置不用
      */
     private ConstVal[] vals;
     private int size = 1;
 
-    public ConstantPool(int constantPoolCount) {
+    public ConstPool(int constantPoolCount) {
         vals = new ConstVal[constantPoolCount];
     }
 
@@ -53,7 +53,7 @@ public class ConstantPool {
     }
 
     public String toString(ConstVal value) {
-        if (value.getVal() instanceof Integer && value.getTag() != ConstantTag.CONSTANT_INTEGER_INFO) {
+        if (value.getVal() instanceof Integer && value.getTag() != ConstTag.CONSTANT_INTEGER_INFO) {
             return get(((Integer) value.getVal()).intValue()).toString();
         } else {
             return value.toString();

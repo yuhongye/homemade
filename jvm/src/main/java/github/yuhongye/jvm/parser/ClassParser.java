@@ -12,20 +12,20 @@ import java.io.IOException;
 import java.util.EnumMap;
 import java.util.Map;
 
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_CLASS_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_DOUBLE_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_FIELDREF_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_FLOAT_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_INTEGER_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_INTERFACEMETHODREF_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_INVOKEDYNAMIC_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_LONG_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_METHODHANDLE_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_METHODREF_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_METHODTYPE_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_NAMEANDTYPE_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_STRING_INFO;
-import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_UTF8_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_CLASS_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_DOUBLE_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_FIELDREF_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_FLOAT_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_INTEGER_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_INTERFACEMETHODREF_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_INVOKEDYNAMIC_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_LONG_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_METHODHANDLE_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_METHODREF_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_METHODTYPE_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_NAMEANDTYPE_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_STRING_INFO;
+import static github.yuhongye.jvm.parser.ConstTag.CONSTANT_UTF8_INFO;
 
 /**
  * Java class 文件结构
@@ -59,7 +59,7 @@ import static github.yuhongye.jvm.parser.ConstantTag.CONSTANT_UTF8_INFO;
 public class ClassParser {
     public static final int MAGIC = 0xCAFEBABE;
 
-    public static Map<ConstantTag, ReadConstant<DataInput, ConstVal>> constantTagParser = new EnumMap<>(ConstantTag.class);
+    public static Map<ConstTag, ReadConstant<DataInput, ConstVal>> constantTagParser = new EnumMap<>(ConstTag.class);
     static {
         constantTagParser.put(CONSTANT_INTEGER_INFO,            in -> new ConstVal(CONSTANT_INTEGER_INFO, in.readInt()));
         constantTagParser.put(CONSTANT_LONG_INFO,               in -> new ConstVal(CONSTANT_LONG_INFO, in.readLong()));
@@ -82,7 +82,7 @@ public class ClassParser {
         constantTagParser.put(CONSTANT_INVOKEDYNAMIC_INFO,      ClassParser::readDynamic);
     }
 
-    private ConstantPool constantPool;
+    private ConstPool constantPool;
 
     public void checkCheckMagic(DataInput in) throws IOException {
         int magic = in.readInt();
@@ -94,12 +94,12 @@ public class ClassParser {
         int minor = in.readShort();
         int major = in.readShort();
         log.info("Major version: {}, minor version: {}", major, minor);
-        log.info("JDK VERSION: {}", JDKVersion.getByVersion(major));
+        log.info("JDK VERSION: {}", JDKVersion.getByMajor(major));
     }
 
     private int readConstantPoolCountAndInit(DataInput in) throws IOException {
         int count = in.readUnsignedShort();
-        constantPool = new ConstantPool(count);
+        constantPool = new ConstPool(count);
         log.info("Constant pool count: {}", count);
         return count;
     }
@@ -109,7 +109,7 @@ public class ClassParser {
         int i = 1;
         while (i < count) {
             int tag = in.readUnsignedByte();
-            ConstantTag ctag = ConstantTag.getByTag(tag);
+            ConstTag ctag = ConstTag.getByTag(tag);
             ConstVal value = constantTagParser.get(ctag).read(in);
             log.info("#{} Read constant pool {}[{}], value: {}", i, ctag, tag, value.toString());
             constantPool.add(value);
@@ -278,11 +278,11 @@ public class ClassParser {
         int length = in.readInt();
         byte[] attribute = new byte[length];
         in.readFully(attribute);
-        log.info("\tattribute name: {}, length: {}", name.toString(), length);
+        log.info("\tAttribute name: {}, length: {}", name.toString(), length);
     }
 
     public static void main(String[] args) throws Exception {
-        DataInputStream in = new DataInputStream(new FileInputStream("/Users/caoxiaoyong/Desktop/temp/HelloWorld.class"));
+        DataInputStream in = new DataInputStream(new FileInputStream("target/classes/github/yuhongye/jvm/test/CQueue.class"));
         ClassParser parser = new ClassParser();
         parser.checkCheckMagic(in);
         parser.checkVersion(in);
