@@ -71,7 +71,7 @@ static size_t ptrSize(void *ptr) {
 }
 
 // for test
-int main() {
+int main2() {
     void *p = zmalloc(8);
     printf("Point address: %p, size: %zu\n", p, ptrSize(p));
     *((int*)p) = 1024;
