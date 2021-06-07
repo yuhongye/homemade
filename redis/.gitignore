@@ -54,3 +54,4 @@ dkms.conf
 # redis bin
 sds
 zmalloc
+adlist
