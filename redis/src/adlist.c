@@ -5,33 +5,47 @@
 
 
 /**
+ * 创建一个新 list, 新创建的 list 可以被AlFreList()释放，但是每个节点的 value 需要用户自己手动释放
  * 
- * 
+ * @return empty list pointer or NULL if error
  */
 list *listCreate() {
     struct list *list = zmalloc(sizeof(struct list));
     if (list == NULL) {
         return NULL;
     }
+    list->head = list->tail = NULL;
+    list->dup = NULL;
+    list->free = NULL;
+    list->match = NULL;
     list->len = 0;
     return list;
 }
 
 void listRelease(list *list) {
-    listNode *node = list->head;
-    for (int i = 0; i < list->len; i++) {
-        zfree(node->value);
-        listNode *temp = node;
-        node = node->next;
-        zfree(temp);
+    unsigned int len = list->len;
+    listNode *current = list->head;
+    listNode *next;
+    for (int i = 0; i < len; i++) {
+        next = current->next;
+        if (list->free != NULL) {
+            list->free(current->value);
+        }
+        zfree(current);
+        current = next;
     }
     zfree(list);
 }
 
+/**
+ * 在队头添加的一个元素.
+ * 内存不足时返回 NULL，不会做任何操作(传进来的 list 仍然存在).
+ * 成功时传进来的 list
+ */
 list *listAddNodeHead(list *list, void *value) {
     listNode *node = zmalloc(sizeof(struct listNode));
     if (node == NULL) {
-        return list;
+        return NULL;
     }
     node->value = value;
     node->prev = NULL;
@@ -51,7 +65,7 @@ list *listAddNodeHead(list *list, void *value) {
 list *listAddNodeTail(list *list, void *value) {
     listNode *node = zmalloc(sizeof(struct listNode));
     if (node == NULL) {
-        return list;
+        return NULL;
     }
     node->value = value;
     node->next = NULL;
@@ -72,31 +86,25 @@ list *listAddNodeTail(list *list, void *value) {
  * 假设 node 就是 list 中的 节点
  */
 void listDelNode(list *list, listNode *node) {
-    if (node != list->head && node != list->tail) {
-        listNode *temp = node->next;
+    if (node->prev != NULL) {
         node->prev->next = node->next;
-        node->next->prev = node->prev;
-        node->prev = node->next = NULL;
     } else {
-        if (node == list->head) {
-            list->head = node->next;
-            if (list->head != NULL) {
-                list->head->prev = NULL;
-            }
-            node ->next = NULL;
-        }
-        if (node == list->tail) {
-            list->tail = node->prev;
-            if (list->tail != NULL) {
-                list->tail->next = NULL;
-            }
-            node->prev = NULL;
-        }
+        // node 就是 head
+        list->head = node->next;
     }
-    list->len -= 1;
-    // TODO: 要不要free
-    free(node->value);
+
+    if (node->next != NULL) {
+        node->next->prev = node->prev;
+    } else {
+        // node 就是 tail
+        list->tail = node->prev;
+    }
+    
+    if (list->free != NULL) {
+        list->free(node->value);
+    }
     free(node);
+    list->len--;
 }
 
 listIter *listGetIterator(list *list, int direction) {
@@ -104,26 +112,25 @@ listIter *listGetIterator(list *list, int direction) {
     if (it == NULL) {
         return NULL;
     }
+    if (direction == AL_START_HEAD) {
+        it->next = list->head;
+    } else {
+        it->next = list->tail;
+    }
     it->direction = direction;
-    it->next = list->head;
-    it->prev = list->tail;
     return it;
 }
 
 listNode *listNextElement(listIter *iter) {
-    if (iter->direction == AL_START_HEAD) {
-        listNode *node = iter->next;
-        if (iter->next != NULL) {
-            iter->next = iter->next->next;
+    listNode *current = iter->next;
+    if (current != NULL) {
+        if (iter->direction == AL_START_HEAD) {
+            iter->next = current->next;
+        } else {
+            iter->next = current->prev;
         }
-        return node;
-    } else {
-        listNode *node = iter->prev;
-        if (iter->prev != NULL) {
-            iter->prev = iter->prev->prev;
-        }
-        return node;
     }
+    return current;
 }
 
 void listReleaseIterator(listIter *iter) {
@@ -131,14 +138,28 @@ void listReleaseIterator(listIter *iter) {
 }
 
 /**
- * 基于 orig 创建一个新的 list
+ * 基于 orig 创建一个新的 list, 内存不足时返回 NULL.
+ * 如果 'Dup' 函数存在的话，新创建的 list node 是基于 原来数据的拷贝，否则
+ * 就是共享 value.
+ * orig都不会改变
  */ 
 list *listDup(list *orig) {
     list *newList = listCreate();
-    newList->len = orig->len;
+    if (newList == NULL) {
+        return NULL;
+    }
+    newList->dup = orig->dup;
+    newList->free = orig->free;
+    newList->match = orig->match;
+
+    int len = orig->len;
     listNode *node = orig->head;
-    for (int i = 0; i < orig->len; i++) {
-        listAddNodeTail(newList, node);
+    for (int i = 0; i < len; i++) {
+        void *newValue = orig->dup != NULL ? orig->dup(node->value) : node->value;
+        if (newValue == NULL || listAddNodeTail(newList, newValue) == NULL) {
+            listRelease(newValue);
+            return NULL;
+        }
         node = node->next;
     }
     return newList;
@@ -150,22 +171,35 @@ list *listDup(list *orig) {
 listNode *listSearchKey(list *list, void *key) {
     listNode *node = list->head;
     while (node != NULL) {
-        if (list->match(key, node->value) != 0) {
-            node = node->next;
+        if (list->match != NULL) {
+            if (list->match(node->value, key) == 0) {
+                return node;
+            }
+        } else if (node->value == key) {
+            return node;
         }
     }
-    return node;
+    return NULL;
 }
 
 /**
- * todo: 根据 index 来决定是从前往后遍历还是从后往前遍历
+ * @param index 指定元素的位置；如果是正数则从头开始找，起始位置是0；如果是负数，则头尾部开始找，起始位置是-1
  */
 listNode *listIndex(list *list, int index) {
-    listNode *node = list->head;
-    for (int i = 0; i < index; i++) {
-        node = node->next;
+    listNode *n;
+    if (index < 0) {
+        index = (-index) - 1;
+        n = list->tail;
+        while(index-- && n != NULL) {
+            n = n->prev;
+        }
+    } else {
+        n = list->head;
+        while (index-- && n != NULL) {
+            n = n->next;
+        }
     }
-    return node;
+    return n;
 }
 
 /********************************** for test ************************/
