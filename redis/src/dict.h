@@ -84,22 +84,65 @@ if ((ht)->type->keyDestructor != NULL) \
 #define dictGetHashTableUsed(ht) ((ht)->used)
 
 /** API */
+/**
+ * 创建一个空的 hash table
+ */
 dict *dictCreate(dictType *type, void *privadata);
+
+/**
+ * 扩容
+ * @param size 要扩容的大小，实际会向上取2^n
+ */
 int dictExpand(dict *ht, unsigned int size);
+
+/**
+ * @reurn 如果 key 已经存在则返回 DICT_ERR
+ */
 int dictAdd(dict *ht, void *key, void *val);
+
+/**
+ * 先调用 dictAdd 尝试插入，失败的话说明 key 已经存在，则 update
+ */
 int dictReplace(dict *ht, void *key, void *val);
+
+/**
+ * 删除指定的 key，并调用 keyDestructor 和 valueDestructor 释放 key value
+ */
 int dictDelete(dict *ht, const void *key);
+
+/**
+ * 删除指定的 key，但是不调用 keyDestructor 和 valueDestructor
+ */
 int dictDeleteNoFree(dict *ht, const void *key);
+
+/**
+ * 清空 hashtable, 但是 ht 依然存在
+ */
+void dictEmpty(dict *ht);
+
+/**
+ * 清空整个 hashtable, 并释放 ht
+ */
 void dictRelease(dict *ht);
+
+
 dictEntry * dictFind(dict *ht, const void *key);
+
+/**
+ * 调用 dictExpand(ht, ht->used)
+ */
 int dictResize(dict *ht);
+
+/** Iterator */
 dictIterator *dictGetIterator(dict *ht);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
+
 dictEntry *dictGetRandomKey(dict *ht);
+
 void dictPrintStats(dict *ht);
+
 unsigned int dictGenHashFunction(const unsigned char *buf, int len);
-void dictEmpty(dict *ht);
 
 /** Hash table types */
 extern dictType dictTypeHeapStringCopyKey;
