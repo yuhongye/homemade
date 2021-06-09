@@ -58,20 +58,11 @@ typedef struct listIter {
 #define listGetMatchMethod(l) ((l)->match)
 
 /* 原型函数 */
-
-/**
- * 
- */
 list *listCreate(void);
-
 void listRelease(list *list);
 
 list *listAddNodeHead(list *list, void *value);
 list *listAddNodeTail(list *list, void *value);
-
-/**
- * todo: 删除第一个匹配的元素 还是 删除全部匹配的元素 
- */
 void listDelNode(list *list, listNode *node);
 
 listIter *listGetIterator(list *list, int direction);
@@ -79,11 +70,16 @@ listNode *listNextElement(listIter *iter);
 void listReleaseIterator(listIter *iter);
 
 /**
- * 基于 orig 创建一个新的 list
- */ 
+ * 基于 orig 创建一个新的 list. 如果 orig->dup 存在的话，新建 list 中每个节点的 value 是使用 dup 函数
+ * 拷贝了一个新 value, 否则和 orig 的节点 共享 value。
+ * 在这个过程中如果申请的内存失败，则返回 NULL
+ */
 list *listDup(list *orig);
 
 listNode *listSearchKey(list *list, void *key);
+/**
+ * index 支持负数表示从尾部开始遍历，起始 index 是 -1。
+ */
 listNode *listIndex(list *list, int index);
 
 #endif

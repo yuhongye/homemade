@@ -271,7 +271,7 @@ int sdscmp(sds s1, sds s2) {
  * 如果 OOM 了，zero length string, zero length seprator, NULL is returned.
  * 
  * sep 可以是多个字符，比如 sdssplit("foo_-_bar", "_-_") 返回 "foo" 和 "bar"
- * TODO: 对于结尾部分是 sep 的情况不能正确处理，最后一个 token 恰好是 sep
+ * Notice: 对于结尾部分是 sep 的情况, 最后一个 token 长度为0
  */
 sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
     if (seplen < 1 || len < 0) {
