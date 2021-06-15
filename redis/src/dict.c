@@ -214,6 +214,9 @@ static int dictGenericDelete(dict *ht, const void *key, int nofree) {
     return DICT_ERR;
 }
 
+/**
+ * 删除指定的 key，并调用 key
+ */
 int dictDelete(dict *ht, const void *key) {
     return dictGenericDelete(ht, key, false);
 }
