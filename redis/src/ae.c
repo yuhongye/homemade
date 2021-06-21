@@ -67,7 +67,6 @@ void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask) {
 }
 
 /************************** time event 相关函数 ***********************/
-
 /**
  * 将当前时间设置到 seconds 和 milliseconds 中
  */ 
@@ -384,7 +383,7 @@ void aeEventFinalizerProcString(struct aeEventLoop *eventLoop, void *clientData)
     printf("Free client data.\n");
 }
 
-int main() {
+int main10() {
     aeEventLoop *eventLoop = aeCreateEventLoop();
     aeCreateTimeEvent(eventLoop, 1800, aeTimeProcString, "FFFFFFFFFFF", aeEventFinalizerProcString);
     aeCreateTimeEvent(eventLoop, 2800, aeTimeProcString, "SSSSSSSSSSS", aeEventFinalizerProcString);

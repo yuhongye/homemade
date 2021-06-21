@@ -1,4 +1,6 @@
 #ifndef _ADLIST_H_
+#include <stdbool.h>
+
 #define _ADLIST_H_
 
 /** Node, List, and Iterator are the only data structures used currently. */
@@ -24,7 +26,7 @@ typedef struct list {
     void *(*dup)(void *ptr);
     void (*free)(void *ptr);
     // 用来标胶是否相等
-    int (*match)(void *ptr, void *key);
+    bool (*match)(void *ptr, void *key);
 
     unsigned int len;
 } list;

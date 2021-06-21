@@ -26,7 +26,7 @@ void listRelease(list *list) {
     unsigned int len = list->len;
     listNode *current = list->head;
     listNode *next;
-    for (int i = 0; i < len; i++) {
+    for (unsigned int i = 0; i < len; i++) {
         next = current->next;
         if (list->free != NULL) {
             list->free(current->value);
@@ -103,7 +103,7 @@ void listDelNode(list *list, listNode *node) {
     if (list->free != NULL) {
         list->free(node->value);
     }
-    free(node);
+    zfree(node);
     list->len--;
 }
 
@@ -172,7 +172,7 @@ listNode *listSearchKey(list *list, void *key) {
     listNode *node = list->head;
     while (node != NULL) {
         if (list->match != NULL) {
-            if (list->match(node->value, key) == 0) {
+            if (list->match(node->value, key)) {
                 return node;
             }
         } else if (node->value == key) {
@@ -223,8 +223,19 @@ int imatch(void *ptr, void *key) {
     return *k1 < *k2 ? -1 : (*k1 > *k2 ? 1 : 0);
 }
 
+static void displayList(list *list) {
+    listIter *it = listGetIterator(list, AL_START_HEAD);
+    listNode *node = NULL;
+    printf("[");
+    while ((node = listNextElement(it)) != NULL) {
+        printf("%d, ", *((int *)node->value));
+    }
+    printf("]\n");
+    listReleaseIterator(it);
 
-int main() {
+}
+
+int mainlist() {
     list *list = listCreate();
     listSetDupMethod(list, idup);
     listSetFreeMethod(list, ifree);
@@ -235,14 +246,21 @@ int main() {
         listAddNodeTail(list, p);
     }
     printf("list size: %u\n", listLength(list));
+    displayList(list);
 
-
-    listIter *it = listGetIterator(list, AL_START_HEAD);
-    listNode *node = NULL;
-    while ((node = listNextElement(it)) != NULL) {
-        printf("%d\n", *((int *)node->value));
+    int size;
+    listNode  *node;
+    while ((size = listLength(list)) != 0) {
+        int index = rand() % size;
+        node = list->head;
+        for (int i = 1; i < index; i++) {
+            node = node->next;
+        }
+        printf("Will delete node: %d\n", *((int *)node->value));
+        listDelNode(list, node);
+        printf("After delete node, the list: ");
+        displayList(list);
     }
-    listReleaseIterator(it);
 
     listRelease(list);
 

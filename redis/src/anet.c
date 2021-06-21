@@ -301,7 +301,7 @@ void client() {
     close(fd);
 }
 
-int main(int argc, char *argv[]) {
+int main3(int argc, char *argv[]) {
     setvbuf (stdout, NULL, _IONBF, 0);
     if (strcmp(argv[1], "server") == 0) {
         printf("Server start...\n");
@@ -310,4 +310,6 @@ int main(int argc, char *argv[]) {
         printf("Client start ...\n");
         client();
     }
+
+    return 0;
 }

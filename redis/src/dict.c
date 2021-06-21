@@ -509,7 +509,7 @@ extern dictType dictTypeHeapStrings;
 extern dictType dictTypeHeapStringCopyKeyValue;
 
 /* ---------------------- for test ------------------ */
-int main() {
+int mainx() {
     dict *ht = dictCreate(&dictTypeHeapStringCopyKeyValue, NULL);
     for (int i = 0; i < 1025; i++) {
         char *key = _dictAlloc(8);

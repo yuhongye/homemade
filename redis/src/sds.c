@@ -320,7 +320,7 @@ sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count) {
 }
 
 // for test
-int main() {
+int main5() {
     sds s = sdsnew("Sds is Simple Dynamic String Sds");
     printf("%s\n", s);
 
