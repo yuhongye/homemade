@@ -171,7 +171,7 @@ struct redisServer {
     int glueoutputbuf;
     int maxidletime;
     int dbnum;
-    int daemonize;
+    bool daemonize;
     bool bgsaveinprogress;
     struct saveparam *saveparams;
 
@@ -778,6 +778,8 @@ static int syncWithMaster() {
     return REDIS_OK;
 }
 
+/* =========================== RDB save ===================== */
+
 /**
  * 格式: sds length, sds content
  */
@@ -1107,7 +1109,7 @@ static int loadOneDbFromFile(int fp) {
         if (fread(&type, 1, 1, fp) == 0) {
             return REDIS_ERR;
         }
-
+        // 当前db结束了
         if (type == REDIS_SELECTDB || type == REDIS_EOF) {
             return type;
         }
@@ -1119,17 +1121,17 @@ static int loadOneDbFromFile(int fp) {
 
         robj *value = NULL;
         switch (type) {
-        case REDIS_STRING:
-            value = deserializeStringObject(fp, buf);
-            break;
-        case REDIS_LIST:
-            value = deserializeList(fp, buf);
-            break;
-        case REDIS_SET:
-            value = deserializeSet(fp, buf);
-            break;
-        default:
-            assert(false);
+            case REDIS_STRING:
+                value = deserializeStringObject(fp, buf);
+                break;
+            case REDIS_LIST:
+                value = deserializeList(fp, buf);
+                break;
+            case REDIS_SET:
+                value = deserializeSet(fp, buf);
+                break;
+            default:
+                assert(false);
         }
         if (value == NULL) {
             return REDIS_ERR;
@@ -1149,7 +1151,7 @@ static int loadOneDbFromFile(int fp) {
  * [254, db_no, db content, ...] // 1. 254 REDIS_SELECTDB; 2. 无数据的DB忽略掉
  *    db content: [type, key length, key content, value, ...] value需要根据type来解析
  * 255 // REDIS_EOF
- *
+ * @return REDIS_OK if success, otherwise REDIS_ERR
  */
 static int loadDb(char *filename) {
     char *fp = fopen(filename, "r");
@@ -1186,6 +1188,331 @@ static int loadDb(char *filename) {
         exit(1);
         return REDIS_ERR; // avoid compile warning
 }
+
+/* ========================= Comands ========================== */
+static void pingCommand(redisClient *c) {
+    addReply(c, shared.pong);
+}
+
+static void echoCommand(redisClient *c) {
+    addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", (int)sdslen(c->argv[1]->ptr)));
+    addReply(c, c->argv[1]);
+    addReply(c, shared.crlf);
+}
+
+/* ===================== Strings ======================== */
+/**
+ * c->argv: 0: set; 1: key; 2: value
+ * @param nx is not exist, if true only key not exist will add
+ */
+static void setGenericCommand(redisClient *c, bool nx) {
+    int retval = dictAdd(c->dict, c->argv[1], c->argv[2]);
+    if (retval == DICT_ERR) {
+        if (nx) {
+            // key 存在，不做任何操作
+            addReply(c, shared.zero);
+            return;
+        } else {
+            // todo: 是不是应该把这个判断提前，如果不是nx，直接使用replace
+            dictReplace(c->dict, c->argv[1], c->argv[2]);
+            incrRefCount(c->argv[2]);
+        }
+    } else {
+        incrRefCount(c->argv[1]);
+        incrRefCount(c->argv[2]);
+    }
+    server.dirty++;
+    addReply(c, nx ? shared.one : shared.ok);
+}
+
+static void setCommand(redisClient *c) {
+    return setGenericCommand(c, false);
+}
+
+static void setnxCommand(redisClient *c) {
+    return setGenericCommand(c, true);
+}
+
+static void getCommand(redisClient *c) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de != NULL) {
+        robj *o = dictGetEntryVal(de);
+        if (o->type != REDIS_STRING) {
+            addReply(c, shared.wrongtypeerrbulk);
+        } else {
+            addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", (int) sdslen(o->ptr)));
+            addReply(c, o);
+            addReply(c, shared.crlf);
+        }
+    } else {
+        addReply(c, shared.nil);
+    }
+}
+
+static long long dictEntryStringValueToLL(dictEntry *de) {
+    if (de == NULL) {
+        return 0;
+    }
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_STRING) {
+        return 0;
+    } else {
+        char *eptr;
+        return strtoll(o->ptr, &eptr, 10);
+    }
+}
+/**
+ * @param delta 加/减数，负数表示减
+ */
+static void incrDecrCommand(redisClient *c, int delta) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    long long value = dictEntryStringValueToLL(de);
+
+    value += delta;
+
+    robj *o = createObject(REDIS_STRING, sdscatprintf(sdsempty(), "%lld", value));
+    int retval = dictAdd(c->dict, c->argv[1], o);
+    if (retval != DICT_ERR) {
+        incrRefCount(c->argv[1]);
+    } else {
+        dictReplace(c->dict, c->argv[1], o);
+    }
+    server.dirty++;
+    addReply(c, o);
+    addReply(c, shared.crlf);
+}
+
+static void incrCommand(redisClient *c) {
+    return incrDecrCommand(c, 1);
+}
+
+static void incrbyCommand(redisClient *c) {
+    int incr = atoi(c->argv[2]->ptr);
+    return incrDecrCommand(c, incr);
+}
+
+static void decrCommand(redisClient *c) {
+    return incrDecrCommand(c, -1);
+}
+
+static void decrbyCommand(redisClient *c) {
+    int incr = atoi(c->argv[2]->ptr);
+    return incrDecrCommand(c, -incr);
+}
+
+/* ==================== Type agnostic commands ====================== */
+static void delCommand(redisClient *c) {
+    if (dictDelete(c->dict, c->argv[1]) == DICT_OK) {
+        server.dirty++;
+        addReply(c, shared.one);
+    } else {
+        addReply(c, shared.zero);
+    }
+}
+
+static void existCommand(redisClient *c) {
+    dictEntry *de = dictFind(c, c->argv[1]);
+    addReply(c, de != NULL ? shared.one : shared.zero);
+}
+
+static void selectCommand(redisClient *c) {
+    int id = atoi(c->argv[1]->ptr);
+    if (selectDb(c, id) != REDIS_ERR) {
+        addReply(c, shared.ok);
+    } else {
+        addReplySds(c, "-ERR invalid DB index\r\n");
+    }
+}
+
+static void randomkeyCommand(redisClient *c) {
+    dictEntry *de = dictGetRandomKey(c->dict);
+    if (de != NULL) {
+        addReply(c, dictGetEntryKey(de));
+        addReply(c, shared.crlf);
+    } else {
+        addReply(c, shared.crlf);
+    }
+}
+
+static void keysCommand(redisClient *c) {
+    sds pattern = c->argv[1]->ptr;
+    int plen = sdslen(pattern);
+
+    dictIterator *it = dictGetIterator(c->dict);
+    if (it == NULL) {
+        oom("dictGetIterator");
+    }
+
+    robj *lenobj = createObject(REDIS_STRING, NULL);
+    addReply(c, lenobj);
+    decrRefCount(lenobj);
+
+    int keyslen = 0;
+    int numkeys = 0;
+    dictEntry *de;
+    while ((de = dictNext(it)) != NULL) {
+        robj *keyobj = dictGetEntryKey(de);
+        sds key = keyobj->ptr;
+        if ((pattern[0] == '*' && pattern[1] == '\0') || stringmatchlen(pattern, plen, key, sdslen(key), 0)) {
+            if (numkeys != 0) {
+                addReply(c, shared.space);
+            }
+            addReply(c, keyobj);
+            numkeys++;
+            keyslen += sdslen(key);
+        }
+    }
+    dictReleaseIterator(it);
+    // numkeys-1 表示空格的数量?
+    // todo: 这个值什么时候发送呢
+    lenobj->ptr = sdscatprintf(sdsempty(), "%lu\r\n", keyslen + (numkeys ? numkeys-1 : 0));
+    addReply(c, shared.crlf);
+}
+
+static void dbsizeCommand(redisClient *c) {
+    sds size = sdscatprintf(sdsempty(), "%lu\r\n", dictGetHashTableUsed(c->dict));
+    addReply(c, size);
+}
+
+static void lastsaveCommand(redisClient *c) {
+    addReply(c, sdscatprintf(sdsempty(), "%lu\r\n", server.lastsave));
+}
+
+static void typeCommand(redisClient *c) {
+    dictEntry *entry = dictFind(c->dict, c->argv[1]);
+    char *type;
+    if (entry != NULL) {
+        robj *o = dictGetEntryVal(entry);
+        if (o->type == REDIS_STRING) {
+            type = "string";
+        } else if (o->type == REDIS_LIST) {
+            type = "list";
+        } else if (o->type == REDIS_SET) {
+            type = "set";
+        } else {
+            type = "unknow";
+        }
+    } else {
+        type = "none";
+    }
+    addReplySds(c, sdsnew(type));
+    addReply(c, shared.crlf);
+}
+
+static void saveCommand(redisClient *c) {
+    if (saveDb(server.dbfilename) == REDIS_OK) {
+        addReply(c, shared.ok);
+    } else {
+        addReply(c, shared.err);
+    }
+}
+
+static void bgsaveCommand(redisClient *c) {
+    if (server.bgsaveinprogress) {
+        addReplySds(c, sdsnew("-ERR background save already in progress\r\n"));
+        return;
+    }
+    if (saveDbBackground(server.dbfilename) == REDIS_OK) {
+        addReply(c, shared.ok);
+    } else {
+        addReply(c, shared.err);
+    }
+}
+
+static void shutdownCommand(redisClient *c) {
+    redisLog(REDIS_WARNING, "User requested shutdown, saving DB...");
+    if (saveDb(server.dbfilename) == REDIS_OK) {
+        redisLog(REDIS_WARNING, "Server exit now, bye bye...");
+        exit(1);
+    } else {
+        redisLog(REDIS_WARNING, "Error trying to save the db, can't exit");
+        addReplySds(c, sdsnew("-RR can't quit, problems saving the DB\r\n"));
+    }
+}
+
+/**
+ * @param nx is not exist. if nx is true and the new key is exist, will not rename
+ */
+static void renameGenericCommand(redisClient *c, bool nx) {
+    if (sdscmp(c->argv[1]->ptr, c->argv[2]->ptr) == 0) {
+        if (nx) {
+            addReply(c, shared.minus3);
+        } else {
+            addReplySds(c, sdsnew("-ERR src and dest are the same\r\n"));
+        }
+    }
+
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, nx ? shared.minus1 : shared.nokeyerr);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    // todo: 这里为什么要增加引用次数?
+    incrRefCount(o);
+    if (dictAdd(c->dict, c->argv[2], o) == DICT_ERR) {
+        // the new key is exist, rename failed
+        if (nx) {
+            decrRefCount(o);
+            addReply(c, shared.zero);
+            return;
+        } else {
+            dictReplace(c->dict, c->argv[2], o);
+        }
+    } else {
+        incrRefCount(c->argv[2]);
+    }
+    dictDelete(c->dict, c->argv[1]);
+    server.dirty++;
+    addReply(c, nx ? shared.one : shared.ok);
+}
+
+static void renameCommand(redisClient *c) {
+    renameGenericCommand(c, false);
+}
+
+static void renamenxCommand(redisClient *c) {
+    renameGenericCommand(c, true);
+}
+
+static void moveCommand(redisClient *c) {
+    dict *src = c->dict;
+    int srcid = c->dictid;
+
+    if (selectDb(c, atoi(c->argv[2]->ptr)) == REDIS_ERR) {
+        addReply(c, shared.minus4);
+        return;
+    }
+    dict *dst = c->dict;
+    c->dict = src;
+    c->dictid = srcid;
+    if (src == dst) {
+        addReply(c, shared.minus3);
+        return;
+    }
+
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.zero);
+        return;
+    }
+    robj *key = dictGetEntryKey(de);
+    robj *o = dictGetEntryVal(de);
+    if (dictAdd(dst, key, o) == DICT_ERR) {
+        addReply(c, shared.zero);
+        return;
+    }
+    incrRefCount(key);
+    incrRefCount(o);
+
+    // move 成功，从原来的 db 中删除
+    dictDelete(src, c->argv[1]);
+    server.dirty++;
+    addReply(c, shared.one);
+}
+
+
 
 static void freeClientArgv(redisClient *c) {
     for (int i = 0; i < c->argc; i++) {
@@ -1224,6 +1551,130 @@ static void freeClient(redisClient *c) {
     }
     zfree(c);
 }
+
+/**
+ * 
+ * @return 1 client is still alive and valid, other operations can be performed by the caller. 
+ *         0 client was destroied
+ */
+static int processCommand(redisClient *c) {
+    sdstolower(c->argv[0]->ptr);
+    if (strcmp(c->argv[0]->ptr, "quit") == 0) {
+        freeClient(c);
+        return 0;
+    }
+    
+    struct redisCommand *cmd = lookupCommand(c->argv[0]->ptr);
+    if (c == NULL) {
+        addReplySds(c, sdsnew("-RR unknow command\r\n"));
+        resetClient(c);
+        return 1;
+    } else if ((cmd->arity > 0 && cmd->arity != c->argc) || (c->argc < -cmd->arity)) {
+        addReply(c, sdsnew("-ERR wrong number of arguments\r\n"));
+    }
+
+}
+
+static void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+    REDIS_NOTUSED(el); REDIS_NOTUSED(mask);
+
+    redisClient *c = (redisClient *) privdata;
+    char buf[REDIS_QUERYBUF_LEN];
+    int nread = read(fd, buf, REDIS_QUERYBUF_LEN);
+    if (nread == -1) {
+        if (errno == EAGAIN) {
+            nread = 0;
+        } else {
+            redisLog(REDIS_DEBUG, "Reading from client: %s", strerror(errno));
+            freeClient(c);
+            return;
+        }
+    } else if (nread == 0) {
+        redisLog(REDIS_DEBUG, "Client closed connection");
+        freeClient(c);
+        return;
+    }
+    if (nread > 0) {
+        c->querybuf = sdscatlen(c->querybuf, buf, nread);
+        c->lastinteraction = time(NULL);
+    } else {
+        return;
+    }
+
+    again:
+        if (c->bulklen == -1) {
+
+        } else {
+            int qbl = sdslen(c->querybuf);
+            if (c->bulklen <= qbl) {
+                // argv 是提前创建好的;                                去掉\r\n
+                c->argv[c->argc] = createStringObject(c->querybuf, c->bulklen-2);
+                c->argc++;
+                c->querybuf = sdsrange(c->querybuf, c->bulklen, -1);
+                processCommand(c);
+                return;
+            }
+        }
+}
+
+static int selectDb(redisClient *c, int id) {
+    if (id < 0 || id >= server.dbnum) {
+        return REDIS_ERR;
+    }
+    c->dict = server.dict[id];
+    c->dictid = id;
+    return REDIS_OK;
+}
+
+/**
+ * 创建 client, 并且会注册 readQueryFromClient 的 file event
+ */
+static redisClient *createClient(int fd) {
+    redisClient *c = zmalloc(sizeof(*c));
+    if (c == NULL) {
+        return NULL;
+    }
+    anetNonBlock(NULL, fd);
+    anetTcpNoDelay(NULL, fd);
+    selectDb(c, 0);
+    c->fd = fd;
+    c->querybuf = sdsempty();
+    c->argc = 0;
+    c->bulklen = -1;
+    c->sentlen = 0;
+    c->flags = 0;
+    c->lastinteraction = time(NULL);
+    if ((c->reply = listCreate()) == NULL) {
+        oom("listCreate");
+    }
+    listSetFreeMethod(c->reply, decrRefCount);
+    if (aeCreateFileEvent(server.el, c->fd, AE_READABLE, readQueryFromClient, c, NULL) == AE_ERR) {
+        freeClient(c);
+        return NULL;
+    }
+    if (!listAddNodeTail(server.clients, c)) {
+        oom("listAddNodeTail");
+    }
+    return c;
+}
+
+static void addReply(redisClient *c, robj *obj) {
+    if (listLength(c->reply) == 0 && aeCreateFileEvent(server.el, c->fd, AE_WRITABLE, sendReplyToClient, c, NULL) == AE_ERR) {
+        return;
+    }
+
+    if (listAddNodeTail(c->reply, obj) == NULL) {
+        oom("listAddNodeTail");
+    }
+    incrRefCount(obj);
+}
+
+static void addReplySds(redisClient *c, sds s) {
+    robj *o = createObject(REDIS_STRING, s);
+    addReply(c, o);
+    decrRefCount(o);
+}
+
 
 static void closeTimeoutClients() {
     listIter *it = listGetIterator(server.clients, AL_START_HEAD);
@@ -1334,7 +1785,7 @@ static void initServerConfig() {
     server.logfile = NULL; // means log on standard output
     server.bindaddr = NULL;
     server.glueoutputbuf = 1;
-    server.daemonize = 0;
+    server.daemonize = false;
     server.dbfilename = "dump.rdb";
 
     server.saveparams = NULL;
@@ -1352,7 +1803,11 @@ static void initServerConfig() {
 }
 
 /**
- * 初始化 server 中的重要部分
+ * 初始化 server 中的重要部分:
+ * 1. 创建各种数据结构
+ * 2. 创建每个 db 对象(dict)
+ * 3. 启动 server 的 tcp 监听
+ * 4. 启动定时任务：1) resize db; 2) close timeout clients; 3) bgsave; 4) sync master
  */
 static void initServer() {
     signal(SIGHUP, SIG_IGN);
@@ -1522,6 +1977,55 @@ loaderr:
     exit(1);
 }
 
+
+/**
+ * 监听client请求，建立连接，调用 createClient()
+ */
+static void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    REDIS_NOTUSED(el); REDIS_NOTUSED(mask); REDIS_NOTUSED(privdata);
+    /* client ip and port, anetAccept will assign its value */
+    char cip[128];
+    int cport;
+    int cfd = anetAccept(server.neterr, fd, cip, &cport);
+    if (cfd == ANET_ERR) {
+        redisLog(REDIS_DEBUG, "Accepting client connection: %s", server.neterr);
+        return;
+    }
+    redisLog(REDIS_DEBUG, "Accepted %s:%d", cip, cport);
+    if (createClient(cfd) == NULL) {
+        redisLog(REDIS_WARNING, "Error allocating resource for the client");
+        close(cfd); // May be already closed, just ingore errors
+        return;
+    }
+    server.stat_numconnections++;
+}
+
+/* ======================= Main ======================= */
+static void daemonize() {
+    // parent exits
+    if (fork() != 0) {
+        exit(0);
+    }
+    // create a new session
+    setsid();
+
+    int fd = open("/dev/null", O_RDWR, 0);
+    if (fd != -1) {
+        dup2(fd, STDIN_FILENO);
+        dup2(fd, STDOUT_FILENO);
+        dup2(fd, STDERR_FILENO);
+        if (fd > STDERR_FILENO) {
+            close(fd);
+        }
+    }
+    // Try to write the pid file
+    FILE *fp = fopen("/var/run/redis.pid", "w");
+    if (fp != NULL) {
+        fprintf(fp, "%d\n", getpid());
+        fclose(fp);
+    }
+}
+
 int main(int argc, char **argv) {
     // 1. 初始化、加载 server config
     initServerConfig();
@@ -1535,4 +2039,26 @@ int main(int argc, char **argv) {
 
     // 2. init server
     initServer();
+    if (server.daemonize) {
+        daemonize();
+    }
+    redisLog(REDIS_NOTICE, "Server started, Redis version " REDIS_VERSION);
+
+    // 3. 加载之前的数据
+    if (loadDb(server.dbfilename) == REDIS_OK) {
+        redisLog(REDIS_NOTICE, "DB loaded from disk");
+    }
+
+    // 4. 创建接受连接的 file event: 接受客户端的请求，建立连接，然后调用 createClient
+    if (aeCreateFileEvent(server.el, server.fd, AE_READABLE, acceptHandler, NULL, NULL) == AE_ERR) {
+        oom("creating file event");
+    }
+    redisLog(REDIS_NOTICE, "The server is now ready to accept connections");
+    
+    // 5. 启动
+    aeMain(server.el);
+
+    // 6. 删除
+    aeDeleteEventLoop(server.el);
+    return 0;
 }

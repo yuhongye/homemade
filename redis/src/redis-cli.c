@@ -204,6 +204,7 @@ static int cliSendCommand(int argc, char **argv) {
     /* Build the command to send */
     for (j = 0; j < argc; j++) {
         if (j != 0) cmd = sdscat(cmd," ");
+        // 如果 bulk，写的是后面内容的长度
         if (j == argc-1 && rc->flags & REDIS_CMD_BULK) {
             cmd = sdscatprintf(cmd,"%d",sdslen(argv[j]));
         } else {
@@ -211,9 +212,11 @@ static int cliSendCommand(int argc, char **argv) {
         }
     }
     cmd = sdscat(cmd,"\r\n");
+    printf("cmd: %s=====\n", cmd);
     if (rc->flags & REDIS_CMD_BULK) {
         cmd = sdscatlen(cmd,argv[argc-1],sdslen(argv[argc-1]));
         cmd = sdscat(cmd,"\r\n");
+        printf("cmd is bulk: %s=====\n", cmd);
     }
     anetWrite(fd,cmd,sdslen(cmd));
     if (rc->flags & REDIS_CMD_INTREPLY) {
