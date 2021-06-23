@@ -58,3 +58,4 @@ adlist
 dict
 anet
 ae
+redis-cli

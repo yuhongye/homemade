@@ -96,6 +96,10 @@
 #define isSlave(flags) (((flags) & REDIS_SLAVE) != 0)
 #define isMaster(flags) (((flags) & REDIS_MASTER) != 0)
 
+/** List related stuff */
+#define REDIS_HEAD 0
+#define REDIS_TAIL  1
+
 /** Sort operations */
 #define REDIS_SORT_GET         0
 #define REDIS_SORT_DEL         1
@@ -1512,6 +1516,331 @@ static void moveCommand(redisClient *c) {
     addReply(c, shared.one);
 }
 
+/* =========================== Lists ========================== */
+
+static void addToList(list *list, robj *ele, int where) {
+    if (where == REDIS_HEAD) {
+        if (listAddNodeHead(list, ele)) {
+            oom("listAddNodeHead");
+        }
+    } else {
+        if (!listAddNodeTail(list, ele)) {
+            oom("listAddNodeTail");
+        }
+    }
+}
+/**
+ * list name: argv[1]
+ * element:   argv[2]
+ */
+static void pushGenericCommand(redisClient *c, int where) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        robj *lobj = createListObject();
+        list *list = lobj->ptr;
+        addToList(list, c->argv[2], where);
+        dictAdd(c->dict, c->argv[1], lobj);
+        incrRefCount(c->argv[1]);
+        incrRefCount(c->argv[2]);
+    } else {
+        robj *lobj = dictGetEntryVal(de);
+        if (lobj->type != REDIS_LIST) {
+            addReply(c, shared.wrongtypeerr);
+            return;
+        }
+        list *list = lobj->ptr;
+        addToList(list, c->argv[2], where);
+        incrRefCount(c->argv[2]);
+    }
+    server.dirty++;
+    addReply(c, shared.ok);
+}
+
+static void lpushCommand(redisClient *c) {
+    pushGenericCommand(c, REDIS_HEAD);
+}
+
+static void rpushCommand(redisClient *c) {
+    pushGenericCommand(c, REDIS_TAIL);
+}
+
+static void llenCommand(redisClient *c) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.zero);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_LIST) {
+        addReply(c, shared.minus2);
+    } else {
+        list *l = o->ptr;
+        addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", listLength(l)));
+    }
+}
+
+/**
+ * argv[1]: list name
+ * argv[2]: index
+ * @return 返回 index 处的元素
+ */
+static void lindexCommand(redisClient *c) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.nil);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_LIST) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    int index = atoi(c->argv[2]->ptr);
+    list *list = o->ptr;
+    listNode *node = listIndex(list, index);
+    if (node != NULL) {
+        robj *ele = listNodeValue(node);
+        addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", (int) sdslen(ele->ptr)));
+        addReply(c, ele);
+        addReply(c, shared.crlf);
+    } else {
+        addReply(c, shared.nil);
+    }
+}
+
+/**
+ * argv[1]: list name
+ * argv[2]: index
+ * argv[3]: value
+ * 
+ * 功能: list[index] = value
+ */
+static void lsetCommand(redisClient *c) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.nokeyerr);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_LIST) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    list *list = o->ptr;
+    int index = atoi(c->argv[2]);
+    listNode *node = listIndex(list, index);
+    if (node != NULL) {
+        robj *ele = listNodeValue(node);
+        decrRefCount(ele);
+        listNodeValue(node) = c->argv[3];
+        incrRefCount(c->argv[3]);
+        addReply(c, shared.ok);
+        server.dirty++;
+    } else {
+        addReplySds(c, sdsnew("-ERR index out of range\r\n"));
+    }
+}
+
+/**
+ * 删除一个元素
+ * @param where 指明从队头还是队尾删除
+ */
+static void popGenericCommand(redisClient *c, int where) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.nil);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_LIST) {
+        addReply(c, shared.wrongtypeerrbulk);
+        return;
+    }
+    
+    list *list = o->ptr;
+    listNode *node = (where == REDIS_HEAD) ? listFirst(list) : listLast(list);
+    if (node != NULL) {
+        robj *ele = listNodeValue(node);
+        addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", (int) sdslen(ele->ptr)));
+        addReply(c, ele);
+        addReply(c, shared.crlf);
+        // todo: 不需要decrRefCount吗
+        listDelNode(list, node);
+        server.dirty++;
+    } else {
+        addReply(c, shared.nil);
+    }
+}
+
+static void lpopCommand(redisClient *c) {
+    popGenericCommand(c, REDIS_HEAD);
+}
+
+static void rpopCommand(redisClient *c) {
+    popGenericCommand(c, REDIS_TAIL);
+}
+
+/**
+ * start 和 end 可能为负数，表示尾部往前数
+ */
+static void lindexToPositive(int *start, int *end, int llen) {
+    if (*start < 0) {
+        *start = *start + llen;
+    }
+    if (*end < 0) {
+        *end = *end + llen;
+    }
+    if (*start < 0) {
+        *start = 0;
+    }
+    if (*end < 0) {
+        *end = 0;
+    }
+}
+
+/**
+ * 返回 list[start, end] 范围内的元素
+ * argv[1]: list name
+ * argv[2]: start include
+ * argv[3]: end include
+ */
+static void lrangeCommand(redisClient *c) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.nil);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_LIST) {
+        addReply(c, shared.wrongtypeerrbulk);
+        return;
+    }
+
+    list *list = o->ptr;
+    int llen = listLength(list);
+    int start = atoi(c->argv[2]->ptr);
+    int end = atoi(c->argv[3]->ptr);
+    lindexToPositive(&start, &end, llen);
+
+    if (start > end || start >= llen) {
+        addReply(c, shared.zero);
+        return;
+    }
+
+    if (end >= llen) {
+        end = llen - 1;
+    }
+
+    int rangelen = (end - start) + 1;
+    listNode *node = listIndex(list, start);
+    addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", rangelen));
+    for (int i = 0; i < rangelen; i++) {
+        robj *ele = listNodeValue(node);
+        addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", (int) sdslen(ele->ptr)));
+        addReply(c, ele);
+        addReply(c, shared.crlf);
+        node = node->next;
+    }
+}
+
+/**
+ * 仅保留list[start, end]，其他元素删除
+ * argv[1]: list name
+ * argv[2]: start
+ * argv[3]: end
+ */
+static void ltrimCommand(redisClient *c) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.nokeyerr);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_LIST) {
+        addReply(c, shared.wrongtypeerr);
+        return;
+    }
+
+    list *list = o->ptr;
+    int llen = listLength(list);
+    int start = atoi(c->argv[2]->ptr);
+    int end = atoi(c->argv[3]->ptr);
+    lindexToPositive(&start, &end, llen);
+    int ltrim = start;
+    int rtrim = llen - end - 1;
+    if (start > end || start >= llen) {
+        ltrim = llen;
+        rtrim = 0;
+    }
+
+    for (int i = 0; i < ltrim; i++) {
+        listNode *node = listFirst(list);
+        listDelNode(list, node);
+    }
+    for (int i = 0; i < rtrim; i++) {
+        listNode *node = listLast(list);
+        listDelNode(list, node);
+    }
+    addReply(c, shared.ok);
+    server.dirty++;
+}
+
+/**
+ * argv[1]: list name
+ * argv[2]: count 
+ * argv[3]: target
+ * 
+ * count > 0: 从头开始，删除 count 个等于 target 的元素
+ * count < 0: 从尾部开始，删除 count 个等于 target 的元素
+ * count = 0: 删除所有等于 target 的元素
+ */
+static void lremCommand(redisClient *c) {
+    dictEntry *de = dictFind(c->dict, c->argv[1]);
+    if (de == NULL) {
+        addReply(c, shared.minus1);
+        return;
+    }
+
+    robj *o = dictGetEntryVal(de);
+    if (o->type != REDIS_LIST) {
+        addReply(c, shared.minus2);
+        return;
+    }
+
+    list *list = o->ptr;
+    int count = atoi(c->argv[2]->ptr);
+    bool fromtail = false;
+    if (count < 0) {
+        count = -count;
+        fromtail = true;
+    }
+
+    int removed = 0;
+    listNode *node = fromtail ? list->tail : list->head;
+    while (node != NULL) {
+        listNode *next = fromtail ? node->prev : node->next;
+        robj *ele = listNodeValue(node);
+        if (sdscmp(ele->ptr, c->argv[3]) == 0) {
+            listDelNode(list, node);
+            server.dirty++;
+            removed++;
+            if (count > 0 && removed == count) {
+                break;
+            }
+        }
+
+        node = next;
+    }
+    addReplySds(c, sdscatprintf(sdsempty(), "%d\r\n", removed));
+}
 
 
 static void freeClientArgv(redisClient *c) {
