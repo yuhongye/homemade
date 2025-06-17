@@ -12,10 +12,23 @@ def sigmoid(x):
 def relu(x):
     return np.maximum(0, x)
 
-x = np.arange(-5.0, 5.0, 0.1)
-# y = step_function(x)
-# y = sigmoid(x)
-y = relu(x)
-plt.plot(x, y)
-plt.ylim(-0.1, 1.1)
-plt.show()
+def identity_function(x):
+    """x: numpy array"""
+    return x
+
+def softmax(a):
+    c = np.max(a)
+    exp_a = np.exp(a - c)
+    sum_exp_a = np.sum(exp_a)
+    y = exp_a / sum_exp_a
+    return y
+
+
+if __name__ == '__main__':
+    x = np.arange(-5.0, 5.0, 0.1)
+    # y = step_function(x)
+    # y = sigmoid(x)
+    y = relu(x)
+    plt.plot(x, y)
+    plt.ylim(-0.1, 1.1)
+    plt.show()
