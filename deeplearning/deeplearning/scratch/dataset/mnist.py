@@ -123,6 +123,5 @@ def load_mnist(normalize=True, flatten=True, one_hot_label=False):
 
     return (dataset['train_img'], dataset['train_label']), (dataset['test_img'], dataset['test_label']) 
 
-
 if __name__ == '__main__':
     init_mnist()
