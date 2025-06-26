@@ -1,3 +1,5 @@
+from numpy.ctypeslib import as_array
+
 from step01 import Variable
 import numpy as np
 
@@ -10,10 +12,15 @@ class Function:
         self.input = input # 保存输入的变量
         x = input.data # input 是 Variable 类型
         y = self.forward(x)
-        output = Variable(y)
+        output = Variable(as_array(y))
         output.set_creator(self) # 让输出变量保存创造者信息
         self.output = output # 保存输出结果
         return output
+
+    def as_array(x):
+        if np.isscalar(x):
+            return np.array(x)
+        return x
 
     def forward(self, x):
         raise NotImplementedError()
