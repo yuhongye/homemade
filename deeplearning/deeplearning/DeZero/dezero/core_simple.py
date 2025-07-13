@@ -77,7 +77,7 @@ class Variable:
 
         while len(funcs) > 0:
             f = funcs.pop()
-            print('[backward] - function:', f)
+            # print('[backward] - function:', f)
             gys = [output().grad for output in f.outputs]
             gxs = f.backward(*gys) # 反向传播，计算梯度
             if not isinstance(gxs, tuple):
